@@ -131,7 +131,7 @@ static int i2c_nrfx_twi_transfer(const struct device *dev,
 
 		res = get_dev_data(dev)->res;
 		if (res != NRFX_SUCCESS) {
-			LOG_ERR("Error %d occurred for message %d", res, i);
+			LOG_ERR("Error 0x%x (0x%X) occurred for message %d", res, res - NRFX_ERROR_BASE_NUM, i);
 			ret = -EIO;
 			break;
 		}

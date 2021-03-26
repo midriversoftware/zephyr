@@ -1,0 +1,25 @@
+# 
+# 
+# Fields for MicroChip EEPROM devices
+
+description: MicroChip 24AA64 EEPROM
+
+compatible: "microchip,24aa64"
+
+include: eeprom-base.yaml
+
+properties:
+    size:
+      required: true
+    pagesize:
+      type: int
+      required: true
+      description: EEPROM page size in bytes
+    address-width:
+      type: int
+      required: true
+      description: EEPROM address width in bits
+    timeout:
+      type: int
+      required: true
+      description: EEPROM write cycle timeout in milliseconds

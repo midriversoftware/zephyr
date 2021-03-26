@@ -71,6 +71,8 @@
 #include "common/log.h"
 #include "hal/debug.h"
 
+#include "eeprom/eeprom_mct24aa64.h"
+
 /* opcode of the HCI command currently being processed. The opcode is stored
  * by hci_cmd_handle() and then used during the creation of cmd complete and
  * cmd status events to avoid passing it up the call chain.
@@ -3703,6 +3705,89 @@ static void vs_read_supported_features(struct net_buf *buf,
 	(void)memset(&rp->features[0], 0x00, sizeof(rp->features));
 }
 
+// EEPROM ACCESS
+static void	vs_read_eeprom(struct net_buf *buf,
+				       struct net_buf **evt)
+{
+	struct bt_hci_cp_vs_read_eeprom *cmd = (void *)buf->data;
+	struct bt_hci_rp_vs_read_eeprom *rp;
+	uint16_t eeprom_addr = ((cmd->hdr.addr_hi << 8) | cmd->hdr.addr_low);
+	// printk("read cmd cnt %d ?> size %d\n",cmd->hdr.bytecnt,sizeof(rp->data)); 
+	// printk("Max addr 0x%x\n", EEPROM_MAX_ADDRESS);
+	// printk("addr 0x%x + cnt %d = 0x%x\n", (uint32_t)eeprom_addr, 
+	// 		(uint32_t)cmd->hdr.bytecnt,((uint32_t)eeprom_addr + (uint32_t)cmd->hdr.bytecnt));
+	if (cmd->hdr.bytecnt > sizeof(rp->data) || 		// > size of the buffer
+		((uint32_t)eeprom_addr + (uint32_t)cmd->hdr.bytecnt) > EEPROM_MAX_ADDRESS)  // EEPROM address too large
+	{
+		rp = hci_cmd_complete(evt, sizeof(rp->replyhdr));
+		rp->replyhdr.status = BT_HCI_ERR_INVALID_PARAM;
+		rp->replyhdr.hdr.bytecnt = cmd->hdr.bytecnt;
+		rp->replyhdr.hdr.addr_low = cmd->hdr.addr_low;	
+		rp->replyhdr.hdr.addr_hi = cmd->hdr.addr_hi;	
+		memset(rp->data,0,sizeof(rp->data));
+		printk("EEPROM read cmd range err\n");
+	}
+	else
+	{
+		//printk("CMD: Read from EEPROM: @0x%X len 0x%X\n", eeprom_addr, cmd->hdr.bytecnt);
+		rp = hci_cmd_complete(evt, sizeof(rp->replyhdr)+cmd->hdr.bytecnt);
+		rp->replyhdr.hdr.bytecnt = cmd->hdr.bytecnt;
+		rp->replyhdr.hdr.addr_low = cmd->hdr.addr_low;	
+		rp->replyhdr.hdr.addr_hi = cmd->hdr.addr_hi;	
+		int err = eepromRead(eeprom_addr, rp->data, cmd->hdr.bytecnt);
+		if (err)
+		{
+			rp->replyhdr.status = BT_HCI_ERR_HW_FAILURE;
+			memset(rp->data,0,sizeof(rp->data));
+			printk("CMD: Read from EEPROM: err=%d\n", err);
+		}
+		else
+		{
+			rp->replyhdr.status = BT_HCI_ERR_SUCCESS;
+		}
+	}
+}
+
+static void	vs_write_eeprom(struct net_buf *buf,
+				       struct net_buf **evt)
+{
+	struct bt_hci_cp_vs_write_eeprom *cmd = (void *)buf->data;
+	struct bt_hci_rp_vs_write_eeprom *rp;
+	uint16_t eeprom_addr = ((cmd->hdr.addr_hi << 8) | cmd->hdr.addr_low);
+	// printk("Buf len %d\n", buf->len);
+	// printk("write cmd cnt %d ?> size %d\n",cmd->hdr.bytecnt,sizeof(cmd->data)); 
+	// printk("Max addr 0x%x\n", EEPROM_MAX_ADDRESS);
+	// printk("addr 0x%x + cnt %d = 0x%x\n", (uint32_t)eeprom_addr, (uint32_t)cmd->hdr.bytecnt,
+	// 		((uint32_t)eeprom_addr + (uint32_t)cmd->hdr.bytecnt));
+
+	rp = hci_cmd_complete(evt, sizeof(rp->replyhdr));	// MRS TODO fix magic # header of sta, cnt, lo,hi
+	rp->replyhdr.hdr.bytecnt = cmd->hdr.bytecnt;
+	rp->replyhdr.hdr.addr_low = cmd->hdr.addr_low;	
+	rp->replyhdr.hdr.addr_hi = cmd->hdr.addr_hi;	
+
+	if ( ((buf->len - sizeof(cmd->hdr)) != cmd->hdr.bytecnt) ||	// number of data bytes don't match length specified
+	     (cmd->hdr.bytecnt > sizeof(cmd->data)) || 				// > size of buffer
+		 (((uint32_t)eeprom_addr + (uint32_t)cmd->hdr.bytecnt) > EEPROM_MAX_ADDRESS))  // EEPROM address too large
+	{
+		rp->replyhdr.status = BT_HCI_ERR_INVALID_PARAM;	// MRS TODO check if best err code
+		printk("EEPROM write cmd range err\n");
+	}
+	else
+	{
+		//printk("CMD: Write to EEPROM: @0x%X len 0x%X\n", eeprom_addr, cmd->hdr.bytecnt);
+		int err = eepromWrite(eeprom_addr, cmd->data, cmd->hdr.bytecnt);
+		if (err)
+		{
+			rp->replyhdr.status = BT_HCI_ERR_HW_FAILURE;	// MRS TODO check if best err code
+			printk("CMD: Write to EEPROM: err=%d\n", err);
+		}
+		else
+		{
+			rp->replyhdr.status = BT_HCI_ERR_SUCCESS;
+		}
+	}
+}
+
 uint8_t __weak hci_vendor_read_static_addr(struct bt_hci_vs_static_addr addrs[],
 					uint8_t size)
 {
@@ -3980,6 +4065,7 @@ static int mesh_cmd_handle(struct net_buf *cmd, struct net_buf **evt)
 int hci_vendor_cmd_handle_common(uint16_t ocf, struct net_buf *cmd,
 				 struct net_buf **evt)
 {
+	printk("VENDOR-Specific %x\n",ocf);
 	switch (ocf) {
 	case BT_OCF(BT_HCI_OP_VS_READ_VERSION_INFO):
 		vs_read_version_info(cmd, evt);
@@ -4000,6 +4086,14 @@ int hci_vendor_cmd_handle_common(uint16_t ocf, struct net_buf *cmd,
 		reset(cmd, evt);
 		break;
 #endif /* CONFIG_USB_DEVICE_BLUETOOTH_VS_H4 */
+
+	case BT_OCF(BT_HCI_OP_VS_READ_EEPROM):
+		vs_read_eeprom(cmd, evt);
+		break;
+
+	case BT_OCF(BT_HCI_OP_VS_WRITE_EEPROM):
+		vs_write_eeprom(cmd, evt);
+		break;
 
 #if defined(CONFIG_BT_HCI_VS_EXT)
 	case BT_OCF(BT_HCI_OP_VS_READ_BUILD_INFO):

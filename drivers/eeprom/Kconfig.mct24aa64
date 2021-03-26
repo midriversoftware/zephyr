@@ -1,0 +1,9 @@
+# 
+# 
+
+config EEPROM_MCT24AA64
+	bool "MCT24AA64 EEPROM driver"
+	depends on SOC_SERIES_NRF52X
+	default y
+	help
+	  Enable support for the EEPROM found on Delphian Bridge.

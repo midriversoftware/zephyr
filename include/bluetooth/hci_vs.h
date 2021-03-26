@@ -201,6 +201,38 @@ struct bt_hci_cp_vs_set_usb_transport_mode {
 	uint8_t  mode;
 } __packed;
 
+#define BT_HCI_OP_VS_READ_EEPROM    BT_OP(BT_OGF_VS, 0x0080)
+#define HCI_READ_EEPROM_LEN_MAX		16 // bytes
+typedef struct {
+	uint8_t bytecnt;	// echo of cmd
+	uint8_t addr_low;	// echo of cmd
+	uint8_t addr_hi;	// echo of cmd
+} eeprom_msg_hdr_t;
+
+typedef struct {
+	uint8_t status;
+	eeprom_msg_hdr_t hdr;
+} eeprom_replymsg_hdr_t;
+
+struct bt_hci_cp_vs_read_eeprom {
+	eeprom_msg_hdr_t hdr;
+} __packed;
+struct bt_hci_rp_vs_read_eeprom {
+	eeprom_replymsg_hdr_t replyhdr;
+	uint8_t data[HCI_READ_EEPROM_LEN_MAX];
+} __packed;
+
+
+#define BT_HCI_OP_VS_WRITE_EEPROM    BT_OP(BT_OGF_VS, 0x0082)
+
+struct bt_hci_cp_vs_write_eeprom {
+	eeprom_msg_hdr_t hdr;
+	uint8_t data[HCI_READ_EEPROM_LEN_MAX];
+} __packed;
+struct bt_hci_rp_vs_write_eeprom {
+	eeprom_replymsg_hdr_t replyhdr;
+} __packed;
+
 /* Events */
 
 struct bt_hci_evt_vs {

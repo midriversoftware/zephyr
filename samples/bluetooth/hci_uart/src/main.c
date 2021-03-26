@@ -18,7 +18,10 @@
 
 #include <device.h>
 #include <init.h>
+#include <devicetree.h>
 #include <drivers/uart.h>
+#include <drivers/gpio.h>
+
 
 #include <net/buf.h>
 #include <bluetooth/bluetooth.h>
@@ -27,8 +30,12 @@
 #include <bluetooth/buf.h>
 #include <bluetooth/hci_raw.h>
 
+#include "leds.h"
+#include "eeprom/eeprom_mct24aa64.h"
+
 #define LOG_MODULE_NAME hci_uart
-LOG_MODULE_REGISTER(LOG_MODULE_NAME);
+LOG_MODULE_REGISTER(LOG_MODULE_NAME, LOG_LEVEL_DBG);
+
 
 static const struct device *hci_uart_dev;
 static K_THREAD_STACK_DEFINE(tx_thread_stack, CONFIG_BT_HCI_TX_STACK_SIZE);
@@ -62,7 +69,7 @@ static int h4_read(const struct device *uart, uint8_t *buf, size_t len)
 {
 	int rx = uart_fifo_read(uart, buf, len);
 
-	LOG_DBG("read %d req %d", rx, len);
+//	LOG_DBG("h4_read: read %d req %d", rx, len);
 
 	return rx;
 }
@@ -156,6 +163,7 @@ static void rx_isr(void)
 			if (remaining == 0) {
 				/* Packet received */
 				LOG_DBG("putting RX packet in queue.");
+				LOG_HEXDUMP_DBG(buf->data, buf->len,"RX-->out");
 				net_buf_put(&tx_queue, buf);
 				state = ST_IDLE;
 			}
@@ -187,7 +195,7 @@ static void tx_isr(void)
 {
 	static struct net_buf *buf;
 	int len;
-
+	LED_Red(true);
 	if (!buf) {
 		buf = net_buf_get(&uart_tx_queue, K_NO_WAIT);
 		if (!buf) {
@@ -225,29 +233,32 @@ static void bt_uart_isr(const struct device *unused, void *user_data)
 
 static void tx_thread(void *p1, void *p2, void *p3)
 {
+	LOG_INF("tx_thread started");
 	while (1) {
 		struct net_buf *buf;
 		int err;
 
+		LED_Yellow(true);
 		/* Wait until a buffer is available */
 		buf = net_buf_get(&tx_queue, K_FOREVER);
 		/* Pass buffer to the stack */
 		err = bt_send(buf);
 		if (err) {
-			LOG_ERR("Unable to send (err %d)", err);
+			LOG_ERR("bt_send: Unable to send (err %d)", err);
 			net_buf_unref(buf);
 		}
 
 		/* Give other threads a chance to run if tx_queue keeps getting
 		 * new data all the time.
 		 */
+		LED_Yellow(false);
 		k_yield();
 	}
 }
 
 static int h4_send(struct net_buf *buf)
 {
-	LOG_DBG("buf %p type %u len %u", buf, bt_buf_get_type(buf),
+	LOG_INF("h4_send: buf @%p type %u len %u", buf, bt_buf_get_type(buf),
 		    buf->len);
 
 	net_buf_put(&uart_tx_queue, buf);
@@ -305,10 +316,10 @@ void bt_ctlr_assert_handle(char *file, uint32_t line)
 
 static int hci_uart_init(const struct device *unused)
 {
-	LOG_DBG("");
+	LOG_INF("hci_uart_init");
 
 	/* Derived from DT's bt-c2h-uart chosen node */
-	hci_uart_dev = device_get_binding(CONFIG_BT_CTLR_TO_HOST_UART_DEV_NAME);
+	hci_uart_dev = device_get_binding("UART_1");
 	if (!hci_uart_dev) {
 		return -EINVAL;
 	}
@@ -326,19 +337,60 @@ static int hci_uart_init(const struct device *unused)
 SYS_DEVICE_DEFINE("hci_uart", hci_uart_init, NULL,
 		  APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
 
+static const struct device *uart_dev0, *uart_dev1;
 void main(void)
 {
 	/* incoming events and data from the controller */
 	static K_FIFO_DEFINE(rx_queue);
 	int err;
+	int ret;
 
-	LOG_DBG("Start");
+	LOG_INF("Starting sample HCI_UART");
+
+	LED_Init();
+
+	LOG_INF("EEPROM Initialization");
+	err = eepromInit();
+	if (err!= 0) 	LOG_WRN("err: eepromInit = %d", err);
+
+#if 0
+	{	// Test the EEPROM routines
+		int cnt = 300;
+		int address = 0x00b0;
+		uint8_t data[10];
+		#define NELEM(x)	( sizeof(x) / (sizeof(*x)) )
+		while (cnt-- > 0)
+		{
+			err = eepromRead(address, data, NELEM(data));
+			if (err!= 0)
+			{
+				LOG_WRN("err: eepromRead = %d", err);
+				break;
+			}
+			LOG_DBG("Read Address: 0x%X len: %d", address, NELEM(data));
+			LOG_HEXDUMP_DBG(data, NELEM(data), "Read");
+
+			for (int i = 0; i < NELEM(data); i++)
+				data[i]++;
+	
+			err = eepromWrite(address, data, NELEM(data));
+			if (err!= 0) 	
+			{
+				LOG_WRN("err: eepromWrite = %d", err);
+				break;
+			}
+			k_msleep(1000);
+		}
+	}
+#endif
+
 	__ASSERT(hci_uart_dev, "UART device is NULL");
 
 	/* Enable the raw interface, this will in turn open the HCI driver */
 	bt_enable_raw(&rx_queue);
-
-	if (IS_ENABLED(CONFIG_BT_WAIT_NOP)) {
+	 
+	if (IS_ENABLED(CONFIG_BT_WAIT_NOP)) 
+	{
 		/* Issue a Command Complete with NOP */
 		int i;
 
@@ -374,11 +426,18 @@ void main(void)
 
 	while (1) {
 		struct net_buf *buf;
-
+		LED_Red(false);
+		LED_Blue(true);
 		buf = net_buf_get(&rx_queue, K_FOREVER);
-		err = h4_send(buf);
-		if (err) {
-			LOG_ERR("Failed to send");
+		LED_Blue(false);
+		if (buf != NULL)
+		{
+			err = h4_send(buf);
+			if (err) {
+				LOG_ERR("Failed to send");
+			}
 		}
+		else
+			k_msleep(200);
 	}
 }
