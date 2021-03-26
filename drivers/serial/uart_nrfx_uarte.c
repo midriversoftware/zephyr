@@ -1646,7 +1646,6 @@ static int uarte_instance_init(const struct device *dev,
 	if (config->pselrxd !=  NRF_UARTE_PSEL_DISCONNECTED) {
 		nrf_gpio_cfg_input(config->pselrxd, NRF_GPIO_PIN_NOPULL);
 	}
-
 	nrf_uarte_txrx_pins_set(uarte, config->pseltxd, config->pselrxd);
 
 	if (config->pselcts != NRF_UARTE_PSEL_DISCONNECTED) {

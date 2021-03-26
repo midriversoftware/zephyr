@@ -35,7 +35,7 @@
 #define PERIOD_USEC	20000U
 #define NUM_STEPS	50U
 #define STEP_USEC	(PERIOD_USEC / NUM_STEPS)
-#define SLEEP_MSEC	25U
+#define SLEEP_MSEC	12U
 
 void main(void)
 {
@@ -53,6 +53,7 @@ void main(void)
 	}
 
 	while (1) {
+	printk("PWM-based LED fade\n");
 		ret = pwm_pin_set_usec(pwm, PWM_CHANNEL, PERIOD_USEC,
 				       pulse_width, PWM_FLAGS);
 		if (ret) {
