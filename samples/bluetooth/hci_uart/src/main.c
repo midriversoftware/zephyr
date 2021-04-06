@@ -32,6 +32,12 @@
 
 #include "leds.h"
 #include "eeprom/eeprom_mct24aa64.h"
+#include <drivers/gpio.h>
+#include <hal/nrf_gpio.h>
+#include <hal/nrf_gpiote.h>
+#include <nrfx_gpiote.h>
+
+
 
 #define LOG_MODULE_NAME hci_uart
 LOG_MODULE_REGISTER(LOG_MODULE_NAME, LOG_LEVEL_DBG);
@@ -238,7 +244,6 @@ static void tx_thread(void *p1, void *p2, void *p3)
 		struct net_buf *buf;
 		int err;
 
-		LED_Yellow(true);
 		/* Wait until a buffer is available */
 		buf = net_buf_get(&tx_queue, K_FOREVER);
 		/* Pass buffer to the stack */
@@ -251,7 +256,6 @@ static void tx_thread(void *p1, void *p2, void *p3)
 		/* Give other threads a chance to run if tx_queue keeps getting
 		 * new data all the time.
 		 */
-		LED_Yellow(false);
 		k_yield();
 	}
 }
@@ -337,6 +341,14 @@ static int hci_uart_init(const struct device *unused)
 SYS_DEVICE_DEFINE("hci_uart", hci_uart_init, NULL,
 		  APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
 
+static int adc_init(const struct device *unused)
+{
+	LOG_INF("adc_init");
+	return 0;
+}
+SYS_DEVICE_DEFINE("adc7", adc_init, NULL,
+		  APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);
+
 static const struct device *uart_dev0, *uart_dev1;
 void main(void)
 {
@@ -347,19 +359,40 @@ void main(void)
 
 	LOG_INF("Starting sample HCI_UART");
 
+
+//LOG_INF("%d %d", NRF_GPIO_PIN_MAP(1,2), NRF_GPIO_PIN_MAP(1,4));
+
 	LED_Init();
+
+	LOG_DBG("%s adc dev = %p", "ADC_7", device_get_binding("ADC_7"));
 
 	LOG_INF("EEPROM Initialization");
 	err = eepromInit();
 	if (err!= 0) 	LOG_WRN("err: eepromInit = %d", err);
 
-#if 0
+#define TEST_LED		0
+#if TEST_LED
+	{
+		while (1)
+		{
+			LOG_INF("LED toggling");
+			LED_Red(true);
+			k_msleep(200);
+			LED_Red(false);
+			k_msleep(100);
+		}
+	}
+#endif
+
+#define TEST_EEPROM		0
+#if TEST_EEPROM
 	{	// Test the EEPROM routines
 		int cnt = 300;
 		int address = 0x00b0;
 		uint8_t data[10];
 		#define NELEM(x)	( sizeof(x) / (sizeof(*x)) )
-		while (cnt-- > 0)
+		//while (cnt-- > 0)
+		while (1)
 		{
 			err = eepromRead(address, data, NELEM(data));
 			if (err!= 0)
@@ -379,7 +412,7 @@ void main(void)
 				LOG_WRN("err: eepromWrite = %d", err);
 				break;
 			}
-			k_msleep(1000);
+			k_msleep(2000);
 		}
 	}
 #endif
@@ -427,9 +460,7 @@ void main(void)
 	while (1) {
 		struct net_buf *buf;
 		LED_Red(false);
-		LED_Blue(true);
 		buf = net_buf_get(&rx_queue, K_FOREVER);
-		LED_Blue(false);
 		if (buf != NULL)
 		{
 			err = h4_send(buf);
